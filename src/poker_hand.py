@@ -27,6 +27,8 @@ Attribute Information:
 9: Royal flush; {Ace, King, Queen, Jack, Ten} + flush
 
 '''
+import os
+import configparser
 import logging
 import datetime as dt
 import time
@@ -55,10 +57,29 @@ COMPILE_LOSS = 'categorical_crossentropy' # 'categorical_crossentropy'
 OPTIMIZER = 'Adam' # 'Adam'
 METRICS = ['accuracy']
 
+def train_class_models(p_np_x, p_np_y, p_np_1hoty):
+    logger.info('Creating models for each hand class')
+    k_models = np.empty(CLASS_COUNT)
+
+    return k_models
+
 if __name__ == '__main__':
     print('Trying to identify poker hands\n')
     
-    log_file = "D:\\Brian\\AI Projects\\poker\\poker-hand-log.txt"
+    config_file = os.getenv('localappdata') + "\\AI Projects\\poker.ini"
+    config = configparser.ConfigParser()
+    config.read(config_file)
+    config.sections()
+
+    ''' data source '''
+    devdata = config['DEVDATA']
+    devdata_dir = devdata['dir']
+    
+    ''' log file '''
+    devlog = config['LOGGING']
+    devlog_dir = devlog['logdir']
+    log_file = devlog_dir + 'poker-hand-log.txt'
+    #log_file = "D:\\Brian\\AI Projects\\poker\\poker-hand-log.txt"
     logging.basicConfig(filename=log_file, level=logging.DEBUG, format='%(asctime)s: %(levelname)s: %(message)s')
     print ("Logging to", log_file)
     logger = logging.getLogger('poker_logger')
@@ -67,7 +88,7 @@ if __name__ == '__main__':
     
     now = dt.datetime.now()
 
-    output_file = "D:\\Brian\\AI Projects\\poker\\poker-hand-result"
+    output_file = devlog_dir + "poker-hand-result"
     output_file = output_file + '{:4d} {:0>2d} {:0>2d} {:0>2d} {:0>2d} {:0>2d}'.format(now.year, now.month, now.day, \
                                                                                      now.hour, now.minute, now.second) + '.txt'
     f_out = open(output_file, 'w')
@@ -78,7 +99,7 @@ if __name__ == '__main__':
     print('Loading data')
     
     ''' training data '''
-    training_file = "D:\\Brian\\AI Projects\\poker\\poker-hand-training-true.data"
+    training_file = devdata_dir + "\\poker-hand-training-true.data"
     df_training_data = pd.read_csv(training_file, header=None, names=COL_NAMES)
     np_training = df_training_data.to_numpy(copy=True)
     i_samples = np_training.shape[0]
@@ -113,6 +134,9 @@ if __name__ == '__main__':
             np_y[ndx_i, ndx_fill] = np_y[ndx_i, ndx_fill - ndx_offset]
             np_1hoty[ndx_i, ndx_fill, ndx_i] = 1
             ndx_class[ndx_i] += 1
+            
+    k_models = train_class_models(np_x, np_y, np_1hoty)
+    
     ''' combine class samples into full training data '''
     np_train_x = np.empty((i_train_count, CARDS*2))
     np_train_y = np.empty((i_train_count))
