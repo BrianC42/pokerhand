@@ -50,7 +50,7 @@ NDX_HAND = 10
 LAYER_COUNT = 10
 LAYER_NODES = 1000
 BATCH_SIZE = 32
-EPOCHS = 5
+EPOCHS = 1
 DROPOUT_RATE = 0.5
 ACTIVATION = 'relu' # 'relu' 'softmax' 'elu' 'selu' 'tanh' 'sigmoid'
 COMPILE_LOSS = 'categorical_crossentropy' # 'categorical_crossentropy'
@@ -59,14 +59,95 @@ METRICS = ['accuracy']
 
 def train_class_models(p_np_x, p_np_y, p_np_1hoty):
     logger.info('Creating models for each hand class')
-    k_models = np.empty(CLASS_COUNT)
+    k_models = []
 
-    return k_models
+    ''' combine class samples into full training data '''
+    np_train_x = np.empty((i_train_count, CARDS*2))
+    np_train_y = np.empty((i_train_count))
+    np_1hot_train = np.empty((i_train_count, CLASS_COUNT))
+    for ndx_i in range (0, i_class_max_count):
+        for ndx_j in range (0, CLASS_COUNT):
+            np_train_x[(ndx_i * CLASS_COUNT) + ndx_j, :] = np_x[ndx_j, ndx_i, :]
+            
+            ''' all class identification '''
+            np_train_y[(ndx_i * CLASS_COUNT) + ndx_j] = np_y[ndx_j, ndx_i]
+            np_1hot_train[(ndx_i * CLASS_COUNT) + ndx_j, :] = np_1hoty[ndx_j, ndx_i, :]
+            
+            ''' identify a single class '''
+            '''
+            if np_y[ndx_j, ndx_i] == 7:
+                np_train_y[(ndx_i * CLASS_COUNT) + ndx_j] = np_y[ndx_j, ndx_i]
+                np_1hot_train[(ndx_i * CLASS_COUNT) + ndx_j, :] = np_1hoty[ndx_j, ndx_i, :]
+            else:
+                np_train_y[(ndx_i * CLASS_COUNT) + ndx_j] = CLASS_COUNT + 1
+            '''
+    ''' normalize inputs to 0 < val < 1 '''
+    for ndx_i in range (0, i_train_count) :
+        for ndx_j in range (0, CLASS_COUNT, 2):
+            np_train_x[ndx_i, ndx_j] = np_train_x[ndx_i, ndx_j] / 4 # normalize suit
+        for ndx_k in range (1, CLASS_COUNT, 2):
+            np_train_x[ndx_i, ndx_k] = np_train_x[ndx_i, ndx_k] / 13 # normalize rank
+    
+    ''' preparation without balanced sample classification '''
+    np_training_x = np.array(np_training[:, :CLASS_COUNT], dtype=float64)
+    np_training_y = np.array(np_training[:, CLASS_COUNT:])
+    np_1hot_training_y = np.zeros((np_training.shape[0], CLASS_COUNT), dtype=float64)
+
+    for ndx_i in range (0, np_1hot_training_y.shape[0]) :
+        # investigate to_categorical
+        np_1hot_training_y[ndx_i, np_training_y[ndx_i]] = 1 # encode category
+        for ndx_j in range (0, CLASS_COUNT, 2):
+            np_training_x[ndx_i, ndx_j] = np_training_x[ndx_i, ndx_j] / 4 # normalize suit
+        for ndx_k in range (1, CLASS_COUNT, 2):
+            np_training_x[ndx_i, ndx_k] = np_training_x[ndx_i, ndx_k] / 13 # normalize rank
+            
+    for ndx_i in range (0, CLASS_COUNT): 
+        ''' .................... Step 2 - Build Model ............................
+        ========================================================================= '''
+        #step2 = time.time()
+        print('Builing model')
+        kf_input = Input(shape=(CLASS_COUNT, ), dtype='float32', name='input')
+        kf_layers = Dense(LAYER_NODES, activation=ACTIVATION)(kf_input)
+
+        for ndx_layer in range (0, LAYER_COUNT):
+            kf_layers = Dropout(DROPOUT_RATE)(kf_layers)
+            kf_layers = Dense(LAYER_NODES, activation=ACTIVATION)(kf_input)
+            '''
+                          kernel_regularizer=regularizers.l2(0.0), \
+                          activity_regularizer=regularizers.l1(0.0), \
+            '''
+        
+        kf_output = Dense(units=CLASS_COUNT, activation='softmax', name="PokerHands")(kf_layers)
+    
+        k_model = Model(inputs=kf_input, outputs=kf_output)
+        k_model.compile(optimizer=OPTIMIZER, \
+                        loss=COMPILE_LOSS, \
+                        metrics=METRICS, \
+                        loss_weights=[1.0], \
+                        sample_weight_mode=None, weighted_metrics=None, target_tensors=None)
+    
+        k_models.append(k_model)
+
+        ''' .................... Step 3 - Train the model .....................
+        ========================================================================= '''
+        #step3 = time.time()
+        print('Training the model')
+        k_models[ndx_i].fit(x=np_train_x, y=np_1hot_train, shuffle=False, batch_size=BATCH_SIZE, epochs=EPOCHS, validation_split=0.05, verbose=2)
+    
+        ''' .................... Step 4 - Evaluate the model! ...............
+        ========================================================================= '''
+        #step4 = time.time()
+        print('Evaluating the model')
+        score = k_models[ndx_i].evaluate(x=np_testing_x, y=np_1hot_testing_y, verbose=0)    
+        print('score: {:.6f}(???) {:.4%} (accuracy)'.format(score[0], score[1]))
+        f_out.write('\nModel score[0]= {:.6f}(???) {:.4%} (accuracy)'.format(score[0], score[1]))
+
+    return k_models[7]
 
 if __name__ == '__main__':
     print('Trying to identify poker hands\n')
     
-    config_file = os.getenv('localappdata') + "\\AI Projects\\poker.ini"
+    config_file = os.getenv('localappdata') + "\\Development\\poker.ini"
     config = configparser.ConfigParser()
     config.read(config_file)
     config.sections()
@@ -135,46 +216,6 @@ if __name__ == '__main__':
             np_1hoty[ndx_i, ndx_fill, ndx_i] = 1
             ndx_class[ndx_i] += 1
             
-    k_models = train_class_models(np_x, np_y, np_1hoty)
-    
-    ''' combine class samples into full training data '''
-    np_train_x = np.empty((i_train_count, CARDS*2))
-    np_train_y = np.empty((i_train_count))
-    np_1hot_train = np.empty((i_train_count, CLASS_COUNT))
-    for ndx_i in range (0, i_class_max_count):
-        for ndx_j in range (0, CLASS_COUNT):
-            np_train_x[(ndx_i * CLASS_COUNT) + ndx_j, :] = np_x[ndx_j, ndx_i, :]
-            ''' all class identification '''
-            '''
-            np_train_y[(ndx_i * CLASS_COUNT) + ndx_j] = np_y[ndx_j, ndx_i]
-            np_1hot_train[(ndx_i * CLASS_COUNT) + ndx_j, :] = np_1hoty[ndx_j, ndx_i, :]
-            '''
-            ''' identify a single class '''
-            if np_y[ndx_j, ndx_i] == 7:
-                np_train_y[(ndx_i * CLASS_COUNT) + ndx_j] = np_y[ndx_j, ndx_i]
-                np_1hot_train[(ndx_i * CLASS_COUNT) + ndx_j, :] = np_1hoty[ndx_j, ndx_i, :]
-            else:
-                np_train_y[(ndx_i * CLASS_COUNT) + ndx_j] = CLASS_COUNT + 1
-    ''' normalize inputs to 0 < val < 1 '''
-    for ndx_i in range (0, i_train_count) :
-        for ndx_j in range (0, CLASS_COUNT, 2):
-            np_train_x[ndx_i, ndx_j] = np_train_x[ndx_i, ndx_j] / 4 # normalize suit
-        for ndx_k in range (1, CLASS_COUNT, 2):
-            np_train_x[ndx_i, ndx_k] = np_train_x[ndx_i, ndx_k] / 13 # normalize rank
-    
-    ''' preparation without balanced sample classification '''
-    np_training_x = np.array(np_training[:, :CLASS_COUNT], dtype=float64)
-    np_training_y = np.array(np_training[:, CLASS_COUNT:])
-    np_1hot_training_y = np.zeros((np_training.shape[0], CLASS_COUNT), dtype=float64)
-
-    for ndx_i in range (0, np_1hot_training_y.shape[0]) :
-        # investigate to_categorical
-        np_1hot_training_y[ndx_i, np_training_y[ndx_i]] = 1 # encode category
-        for ndx_j in range (0, CLASS_COUNT, 2):
-            np_training_x[ndx_i, ndx_j] = np_training_x[ndx_i, ndx_j] / 4 # normalize suit
-        for ndx_k in range (1, CLASS_COUNT, 2):
-            np_training_x[ndx_i, ndx_k] = np_training_x[ndx_i, ndx_k] / 13 # normalize rank
-        
     ''' testing data '''
     testing_file = "D:\\Brian\\AI Projects\\poker\\poker-hand-testing.data"
     df_testing_data = pd.read_csv(testing_file, header=None, names=COL_NAMES)
@@ -189,41 +230,8 @@ if __name__ == '__main__':
         for ndx_k in range (1, CLASS_COUNT, 2):
             np_testing_x[ndx_i, ndx_k] = np_testing_x[ndx_i, ndx_k] / 13 # normalize rank
     
-    ''' .................... Step 2 - Build Model ............................
-    ========================================================================= '''
-    step2 = time.time()
-    print('Builing model')
-    kf_input = Input(shape=(CLASS_COUNT, ), dtype='float32', name='input')
-    kf_layers = Dense(LAYER_NODES, activation=ACTIVATION)(kf_input)
 
-    for ndx_layer in range (0, LAYER_COUNT):
-        kf_layers = Dropout(DROPOUT_RATE)(kf_layers)
-        kf_layers = Dense(LAYER_NODES, activation=ACTIVATION)(kf_input)
-        '''
-                          kernel_regularizer=regularizers.l2(0.0), \
-                          activity_regularizer=regularizers.l1(0.0), \
-        '''
-        
-    kf_output = Dense(units=CLASS_COUNT, activation='softmax', name="PokerHands")(kf_layers)
-    
-    k_model = Model(inputs=kf_input, outputs=kf_output)
-    k_model.compile(optimizer=OPTIMIZER, \
-                    loss=COMPILE_LOSS, \
-                    metrics=METRICS, \
-                    loss_weights=[1.0], \
-                    sample_weight_mode=None, weighted_metrics=None, target_tensors=None)
-
-    ''' .................... Step 3 - Train the model .....................
-    ========================================================================= '''
-    step3 = time.time()
-    print('Training the model')
-    k_model.fit(x=np_train_x, y=np_1hot_train, shuffle=False, batch_size=BATCH_SIZE, epochs=EPOCHS, validation_split=0.05, verbose=2)
-    
-    ''' .................... Step 4 - Evaluate the model! ...............
-    ========================================================================= '''
-    step4 = time.time()
-    print('Evaluating the model')
-    score = k_model.evaluate(x=np_testing_x, y=np_1hot_testing_y, verbose=0)    
+    k_model = train_class_models(np_x, np_y, np_1hoty)
     
     ''' .................... Step 5 - clean up, archive and visualize accuracy! ...............
     =========================================================================================== '''
@@ -246,9 +254,7 @@ if __name__ == '__main__':
             i_incorrect += 1
             np_counts[np_testing_y[ndx_i], 1] += 1
     print('poker_hand shape:', poker_hand.shape)
-    print('score: {:.6f}(???) {:.4%} (accuracy)'.format(score[0], score[1]))
     print("Correct assessments {:.0f}, incorrect {:.0f}".format(i_correct, i_incorrect))
-    f_out.write('\nModel score[0]= {:.6f}(???) {:.4%} (accuracy)'.format(score[0], score[1]))
     for ndx_class in range (0, CLASS_COUNT):
         print("{:d} - {:<15} -{:>10.0f}\t{:>10.0f}\t{:>7.2%}".format(ndx_class, HAND_NAMES[ndx_class], \
                                                                      np_counts[ndx_class, 0], np_counts[ndx_class, 1], \
@@ -259,10 +265,10 @@ if __name__ == '__main__':
 
     end = time.time()
     print ("")
-    print ("Step 1 took %.1f secs to Load and prepare the data for analysis" % (step2 - step1)) 
-    print ("Step 2 took %.1f secs to Build Model" % (step3 - step2)) 
-    print ("Step 3 took %.1f secs to Train the model" % (step4 - step3)) 
-    print ("Step 4 took %.1f secs to Evaluate the model" % (step5 - step4)) 
+    #print ("Step 1 took %.1f secs to Load and prepare the data for analysis" % (step2 - step1)) 
+    #print ("Step 2 took %.1f secs to Build Model" % (step3 - step2)) 
+    #print ("Step 3 took %.1f secs to Train the model" % (step4 - step3)) 
+    #print ("Step 4 took %.1f secs to Evaluate the model" % (step5 - step4)) 
     print ("Step 5 took %.1f secs to Visualize accuracy, clean up and archive" % (end - step5))
 
     f_out.close()
